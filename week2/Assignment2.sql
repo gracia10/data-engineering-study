@@ -8,8 +8,8 @@
                              FROM raw_data.user_session_channel A
                                   INNER JOIN raw_data.session_timestamp B ON A.sessionid = B.sessionid)
 SELECT userid
-     , MAX(CASE WHEN first_visited_seq = 1 THEN channel ELSE '' END) first_channel
-     , MAX(CASE WHEN last_visited_seq = 1 THEN channel ELSE '' END)  last_channel
+     , MAX(CASE WHEN first_visited_seq = 1 THEN channel END) first_channel
+     , MAX(CASE WHEN last_visited_seq = 1 THEN channel END)  last_channel
   FROM visited_channel
  GROUP BY 1
  ORDER BY 1

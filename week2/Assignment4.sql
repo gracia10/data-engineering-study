@@ -13,14 +13,14 @@ SELECT *
   FROM raw_data.session_transaction;
 
 -- 4-2. 채널 & 월별 매출액 테이블 만들기
-SELECT TO_CHAR(B.ts, 'YYYY-MM')                                        "year-month"
+SELECT TO_CHAR(B.ts, 'YYYY-MM')                                 "year-month"
      , A.channel
-     , COUNT(1)                                                        "_rows"
-     , COUNT(DISTINCT A.userid)                                        uniqueUsers
-     , COUNT(DISTINCT CASE WHEN C.amount > 0 THEN A.userid ELSE 0 END) paidUsers
-     , uniqueUsers / NULLIF(paidUsers, 0)                              conversionRate
-     , SUM(C.amount)                                                   grossRevenue
-     , SUM(CASE WHEN refunded IS FALSE THEN C.amount ELSE 0 END)       netRevenue
+     , COUNT(1)                                                 "_rows"
+     , COUNT(DISTINCT A.userid)                                 uniqueUsers
+     , COUNT(DISTINCT CASE WHEN C.amount > 0 THEN A.userid END) paidUsers
+     , uniqueUsers / NULLIF(paidUsers, 0)                       conversionRate
+     , SUM(C.amount)                                            grossRevenue
+     , SUM(CASE WHEN refunded IS FALSE THEN C.amount END)       netRevenue
   FROM gracia10.user_session_channel A
        INNER JOIN gracia10.session_timestamp B ON A.sessionid = B.sessionid
        LEFT OUTER JOIN gracia10.session_transaction C ON A.sessionid = C.sessionid
