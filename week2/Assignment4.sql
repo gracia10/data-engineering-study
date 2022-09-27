@@ -14,8 +14,7 @@ SELECT *
 
 -- 4-2. 채널 & 월별 매출액 테이블 만들기
 SELECT TO_CHAR(B.ts, 'YYYY-MM')                                 "year-month"
-     , A.channel
-     , COUNT(1)                                                 "_rows"
+     , A.channel                                                channel
      , COUNT(DISTINCT A.userid)                                 uniqueUsers
      , COUNT(DISTINCT CASE WHEN C.amount > 0 THEN A.userid END) paidUsers
      , uniqueUsers / NULLIF(paidUsers, 0)                       conversionRate
