@@ -17,7 +17,7 @@ SELECT TO_CHAR(B.ts, 'YYYY-MM')                                 "year-month"
      , A.channel                                                channel
      , COUNT(DISTINCT A.userid)                                 uniqueUsers
      , COUNT(DISTINCT CASE WHEN C.amount > 0 THEN A.userid END) paidUsers
-     , uniqueUsers / NULLIF(paidUsers, 0)                       conversionRate
+     , ROUND(paidUsers * 100.0 / NULLIF(uniqueUsers, 0), 2)     conversionRate
      , SUM(C.amount)                                            grossRevenue
      , SUM(CASE WHEN refunded IS FALSE THEN C.amount END)       netRevenue
   FROM gracia10.user_session_channel A
