@@ -1,39 +1,41 @@
 import psycopg2
 import requests
+import configparser
+import logging
 
-""""
-1. 헤더가 레코드로 추가되는 문제 해결하기
-2. Idempotent하게 잡을 만들기 (full refresh잡이라고 가정)
-3. (Optional) Transaction을 사용해보기
-"""
+logging.basicConfig(level=logging.INFO)
 
 
 def get_redshift_connection():
-    """
-    Redshift connection 함수
-    """
-    host = "learnde.cduaw970ssvt.ap-northeast-2.redshift.amazonaws.com"
-    user = "gracia10"
-    password = "Gracia10!1"
-    port = 5439
-    dbname = "dev"
-    conn = psycopg2.connect(f"dbname={dbname} user={user} host={host} password={password} port={port}")
+    config = configparser.ConfigParser()
+    config.read('../config/config.ini')
+    conn = psycopg2.connect(f"dbname={config['redshift']['dbname']} "
+                            f"user={config['redshift']['user']} "
+                            f"host={config['redshift']['host']} "
+                            f"password={config['redshift']['password']} "
+                            f"port={config['redshift']['port']}")
     conn.set_session(autocommit=True)
     return conn
 
 
 def extract(url):
+    logging.info("Extract started")
     req = requests.get(url)
+    logging.info("Extract done")
     return req.text
 
 
 def transform(text):
-    lines = text.split("\n")
+    logging.info("transform started")
     header = "name,gender"
-    return lines[1:] if lines[0].lower() == header else lines
+    lines = text.split("\n")
+    lines = lines[1:] if lines[0].lower() == header else lines
+    logging.info("transform done")
+    return lines
 
 
 def load(lines):
+    logging.info("load started")
     with get_redshift_connection() as conn:
         with conn.cursor() as cur:
             try:
@@ -46,8 +48,9 @@ def load(lines):
                         sql = f"INSERT INTO gracia10.name_gender VALUES ('{name}', '{gender}')"
                         cur.execute(sql)
             except psycopg2.DatabaseError as err:
-                print(f"[DatabaseError]{err} :: sql -> {sql}")
+                logging.warning(f"[DatabaseError]{err} :: sql -> {sql}")
     conn.close()
+    logging.info("load done")
 
 
 link = "https://s3-geospatial.s3-us-west-2.amazonaws.com/name_gender.csv"
