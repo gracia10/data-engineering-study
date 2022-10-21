@@ -15,10 +15,10 @@ openweather API를 이용하여,
 
 
 def get_Redshift_connection():
+    # autocommit is False by default
     hook = PostgresHook(postgres_conn_id='redshift_dev_db')
     conn = hook.get_conn()
-    conn.set_session(autocommit=True)
-    return conn
+    return conn.cursor()
 
 
 def extract(**context):
@@ -38,17 +38,12 @@ def extract(**context):
 def transform(**context):
     logging.info("transform started")
     json = context['task_instance'].xcom_pull(key="return_value", task_ids="extract")
-    daily = json["daily"]
     lines = []
 
     # 날짜 , 낮온도, 최소온도, 최대온도 추출
-    for d in daily[1:]:
-        lines.append((
-            datetime.fromtimestamp(d["dt"]).strftime('%Y-%m-%d'),
-            d["temp"]["day"],
-            d["temp"]["min"],
-            d["temp"]["max"]
-        ))
+    for d in json["daily"][1:]:
+        ymd = datetime.fromtimestamp(d["dt"]).strftime('%Y-%m-%d')
+        lines.append("('{}',{},{},{})".format(ymd, d["temp"]["day"], d["temp"]["min"], d["temp"]["max"]))
 
     logging.info(f"transform done :: {lines}")
     return lines
@@ -58,36 +53,47 @@ def load(**context):
     logging.info("load started")
     schema = context["params"]["schema"]
     table = context["params"]["table"]
-    temp_table = "temp_" + table
     lines = context["task_instance"].xcom_pull(key="return_value", task_ids="transform")
+    cur = get_Redshift_connection()
 
-    conn = get_Redshift_connection()
-    cur = conn.cursor()
-
-    # 임시 테이블 생성 후 레코드 추가
-    sql = f"DROP TABLE IF EXISTS {schema}.{temp_table};" \
-          f"CREATE TABLE {schema}.{temp_table} AS SELECT * FROM {schema}.{table};"
-    for l in lines:
-        (dt, day, min, max) = l
-        sql += f"INSERT INTO {schema}.{temp_table} VALUES ('{dt}', '{day}', '{min}', '{max}', getdate());"
-
-    # 원본 테이블 레코드 제거 후 중복을 없앤 형태로 추가
-    sql += f"BEGIN;DELETE FROM {schema}.{table};" \
-           f"INSERT INTO {schema}.{table} " \
-           f"SELECT date, temp, min_temp, max_temp, created_date " \
-           f"FROM " \
-           f"(SELECT *, ROW_NUMBER() OVER (PARTITION BY date ORDER BY created_date DESC) seq " \
-           f"FROM {schema}.{temp_table}) " \
-           f"WHERE seq = 1;END;"
-
+    # 임시 테이블 생성
+    create_sql = f"DROP TABLE IF EXISTS {schema}.temp_{table};" \
+                 f"CREATE TABLE {schema}.temp_{table} (LIKE {schema}.{table} INCLUDING DEFAULTS );" \
+                 f"INSERT INTO {schema}.temp_{table} SELECT * FROM {schema}.{table};"
+    logging.info(create_sql)
     try:
-        logging.info(sql)
-        cur.execute(sql)
+        cur.execute(create_sql)
+        cur.execute("COMMIT;")
     except (Exception, psycopg2.DatabaseError) as err:
-        logging.warning(err)
         cur.execute("ROLLBACK;")
+        raise
+
+    # 임시 테이블 데이터 입력
+    insert_sql = f"INSERT INTO {schema}.temp_{table} VALUES " + ",".join(lines)
+    logging.info(insert_sql)
+    try:
+        cur.execute(insert_sql)
+        cur.execute("COMMIT;")
+    except (Exception, psycopg2.DatabaseError) as err:
+        cur.execute("ROLLBACK;")
+        raise
+
+    # 기존 테이블 모든 레코드 제거 후, 중복을 없앤 데이터 입력
+    alter_sql = f"DELETE FROM {schema}.{table};" \
+                f"INSERT INTO {schema}.{table} " \
+                f"SELECT date, temp, min_temp, max_temp, created_date " \
+                f"FROM " \
+                f"(SELECT *, ROW_NUMBER() OVER (PARTITION BY date ORDER BY created_date DESC) seq " \
+                f"FROM {schema}.temp_{table}) " \
+                f"WHERE seq = 1;"
+    logging.info(alter_sql)
+    try:
+        cur.execute(alter_sql)
+        cur.execute("COMMIT;")
+    except (Exception, psycopg2.DatabaseError) as err:
+        cur.execute("ROLLBACK;")
+        raise
     finally:
-        conn.close()
         logging.info("load done")
 
 

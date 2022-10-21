@@ -15,10 +15,10 @@ openweather API를 이용하여,
 
 
 def get_Redshift_connection():
+    # autocommit is False by default
     hook = PostgresHook(postgres_conn_id='redshift_dev_db')
     conn = hook.get_conn()
-    conn.set_session(autocommit=True)
-    return conn
+    return conn.cursor()
 
 
 def extract(**context):
@@ -59,23 +59,21 @@ def load(**context):
     schema = context["params"]["schema"]
     table = context["params"]["table"]
     lines = context["task_instance"].xcom_pull(key="return_value", task_ids="transform")
-    conn = get_Redshift_connection()
-    cur = conn.cursor()
+    cur = get_Redshift_connection()
 
-    sql = f"BEGIN;DELETE FROM {schema}.{table};"
+    sql = f"DELETE FROM {schema}.{table};"
     for l in lines:
         (dt, day, min, max) = l
         sql += f"INSERT INTO {schema}.{table} VALUES ('{dt}', '{day}', '{min}', '{max}');"
-    sql += "END;"
-
+    logging.info(sql)
+    
     try:
-        logging.info(sql)
         cur.execute(sql)
+        cur.execute("COMMIT;")
     except (Exception, psycopg2.DatabaseError) as err:
-        logging.warning(err)
         cur.execute("ROLLBACK;")
+        raise
     finally:
-        conn.close()
         logging.info("load done")
 
 
